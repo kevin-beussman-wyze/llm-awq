@@ -28,7 +28,7 @@ from tinychat.models.vila_llama import VilaLlamaForCausalLM
 from tinychat.stream_generators.llava_stream_gen import LlavaStreamGenerator
 from tinychat.utils.conversation_utils import gen_params, stream_output, TimeStats
 
-import os
+import os, os.path as osp
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
@@ -107,9 +107,25 @@ def main(args):
     else:
         raise NotImplementedError(f"Precision {args.precision} is not supported.")
 
-    image_files = image_parser(args)
-    image_num = len(image_files)
-    images = load_images(image_files)
+    # Support for videos from VILA llava/eval/run_vila.py
+    if args.video_file is None:
+        image_files = image_parser(args)
+        image_num = len(image_files)
+        images = load_images(image_files)
+    else:
+        if args.video_file.startswith("http") or args.video_file.startswith("https"):
+            from io import BytesIO
+            import requests
+            print("downloading video from url", args.video_file)
+            response = requests.get(args.video_file)
+            video_file = BytesIO(response.content)
+        else:
+            assert osp.exists(args.video_file), "video file not found"
+            video_file = args.video_file
+        from llava.mm_utils import opencv_extract_frames
+        images = opencv_extract_frames(video_file, args.num_video_frames)
+        image_num = args.num_video_frames
+
     if args.vis_image:
         print("=" * 50)
         print("Input Image:")
@@ -217,6 +233,8 @@ if __name__ == "__main__":
         type=str,
         default=",",
     )
+    parser.add_argument("--video-file", type=str, default=None)
+    parser.add_argument("--num-video-frames", type=int, default=6)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--max_seq_len", type=int, default=2048)
     parser.add_argument(
